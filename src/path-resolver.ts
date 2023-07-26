@@ -1,5 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 import { resolve } from 'node:path';
+import { preparePattern } from './patterns';
 
 export interface ResolveParams {
 	readonly path: string;
@@ -19,28 +20,30 @@ export interface ResolvedPath {
 
 export interface PathResolveParams {
 	readonly targetPath: string;
-	readonly aliases?: Record<string, string>;
+	readonly aliases?: RawAliases;
 }
+
+type RawAliases = Record<string, string>;
+type AliasesMap = Map<RegExp, string>;
+
+const CURRENT_DIR = './';
 
 export class PathResolver {
 	private _targetPath: string;
-	private _aliases: Map<RegExp, string>;
 
-	private static _prepareAliases(
-		aliases: Record<string, string>
-	): Map<RegExp, string> {
+	private _aliases: AliasesMap;
+
+	private static _prepareAliases(aliases: RawAliases): AliasesMap {
 		const pairs = Object.entries(aliases);
 		const preparedAliases = new Map();
 		pairs.forEach(([key, value]) => {
-			const regExp = new RegExp(key.replaceAll('*', '(.*)'));
-
-			preparedAliases.set(regExp, value);
+			preparedAliases.set(preparePattern(key), value);
 		});
 
 		return preparedAliases;
 	}
 
-	constructor({ targetPath, aliases = {} }: PathResolveParams) {
+	configure({ targetPath, aliases = {} }: PathResolveParams) {
 		this._targetPath = resolve(process.cwd(), targetPath);
 		this._aliases = PathResolver._prepareAliases(aliases);
 	}
@@ -48,14 +51,14 @@ export class PathResolver {
 	resolve(params: ResolveParams): ResolvedPath {
 		const fullPath = resolve(
 			this._targetPath,
-			params.parentPath ?? '.',
+			params.parentPath ?? CURRENT_DIR,
 			params.path
 		);
 
 		return {
 			fullPath,
 			relativePath: fullPath
-				.replace(this._targetPath, './')
+				.replace(this._targetPath, CURRENT_DIR)
 				.replace(/\/+/g, '/'),
 		};
 	}
@@ -72,3 +75,5 @@ export class PathResolver {
 		return path.replace(pair[0], pair[1] + match[1]);
 	}
 }
+
+export const pathResolver = new PathResolver();

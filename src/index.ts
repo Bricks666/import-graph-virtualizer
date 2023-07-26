@@ -2,92 +2,43 @@
 import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { parse as parseAST } from '@babel/parser';
-import { PathResolver, ResolveParams, ResolvedPath } from './path-resolver';
-import type {
-	File,
-	ImportOrExportDeclaration,
-	Statement,
-	StringLiteral,
-} from '@babel/types';
-
-const pathResolver = new PathResolver({
-	targetPath: './example/src',
-	aliases: {
-		'@/*': './',
-	},
-});
-
-interface Node {
-	readonly path: string;
-	readonly dependsOn: string[];
-}
+import { ResolveParams, ResolvedPath, pathResolver } from './path-resolver';
+import { matchAnyPattern, preparedPatterns } from './patterns';
+import { Node, makeNodeFromAST, makeSimpleNode } from './nodes';
 
 const nodes: Record<string, Node> = {};
-
-type NeedStatement = ImportOrExportDeclaration & {
-	readonly source: StringLiteral;
-};
-
-const neededTypes: Statement['type'][] = [
-	'ImportDeclaration',
-	'ExportAllDeclaration',
-	'ExportDefaultDeclaration',
-	'ExportNamedDeclaration',
-];
-
-const isNeededLeave = (
-	statement: Statement
-): statement is ImportOrExportDeclaration => {
-	return neededTypes.includes(statement.type);
-};
-
-interface MakeNodeParams {
-	readonly parsed: File;
-	readonly filePath: string;
-}
-
-const makeNodeFromAST = ({ parsed, filePath }: MakeNodeParams): Node => {
-	const filteredStatements = parsed.program.body.filter(
-		(statement): statement is NeedStatement => {
-			if (!isNeededLeave(statement)) {
-				return false;
-			}
-
-			return 'source' in statement && statement.source !== null;
-		}
-	);
-
-	return {
-		path: filePath,
-		dependsOn: filteredStatements.map((statement) =>
-			pathResolver.resolveAliases(statement.source.value)
-		),
-	};
-};
 
 const parseDir = async (resolvedPath: ResolvedPath) => {
 	const files = await readdir(resolvedPath.fullPath);
 
-	const parsers = files.map(async (file) => {
-		await parse({
+	const parsers = files.map((file) =>
+		parse({
 			path: file,
 			parentPath: resolvedPath.fullPath,
-		});
-	});
+		})
+	);
 
 	await Promise.all(parsers);
 };
 
 const parsableExtensions = ['.ts', '.js', '.mjs'];
 
+const ignorePatterns = preparedPatterns([
+	'node_modules',
+	'dist',
+	'prisma',
+	'index.js',
+	'*.json',
+]);
+
 const parseFile = async (resolvedPath: ResolvedPath): Promise<Node> => {
 	const file = await readFile(resolvedPath.fullPath, 'utf-8');
 	const extension = extname(resolvedPath.fullPath);
+
 	if (!parsableExtensions.includes(extension)) {
-		return {
-			path: resolvedPath.relativePath,
-			dependsOn: [],
-		};
+		return makeSimpleNode({
+			filePath: resolvedPath.relativePath,
+		});
 	}
 
 	const parsed = parseAST(file, {
@@ -105,6 +56,10 @@ const parseFile = async (resolvedPath: ResolvedPath): Promise<Node> => {
 
 const parse = async (params: ResolveParams) => {
 	const resolvedPath = pathResolver.resolve(params);
+	if (matchAnyPattern(resolvedPath.relativePath, ignorePatterns)) {
+		return;
+	}
+
 	const information = await lstat(resolvedPath.fullPath);
 
 	if (information.isFile()) {
@@ -116,11 +71,17 @@ const parse = async (params: ResolveParams) => {
 	}
 };
 
-const start = async () => {
+export const startParsing = async () => {
+	pathResolver.configure({
+		targetPath: './example/src',
+		aliases: {
+			'@/*': './',
+		},
+	});
 	await parse({ path: pathResolver.resolve({ path: '.' }).fullPath });
 
 	console.log('[SUCCESSFULLY PARSED]');
 	await writeFile('./results.json', JSON.stringify(nodes, undefined, 2));
 };
 
-start();
+startParsing();
