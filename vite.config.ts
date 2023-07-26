@@ -7,6 +7,7 @@ export default defineConfig({
 			formats: ['es'],
 			fileName: 'index',
 		},
+		minify: false,
 		outDir: 'bin',
 		rollupOptions: {
 			external: [/node:.*/],

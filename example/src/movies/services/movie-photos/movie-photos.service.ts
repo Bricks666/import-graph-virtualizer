@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { FilesService } from '@/files';
+import { FilesService } from '@/database/files';
 import { RemovePhotosDto } from '../../dto';
 import { Movie, MoviePhoto } from '../../entities';
 import { MoviePhotosRepository } from '../../repositories';

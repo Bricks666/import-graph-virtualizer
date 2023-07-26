@@ -1,19 +1,21 @@
 #! /usr/bin/env node
+import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
+import { extname } from 'node:path';
 import { parse as parseAST } from '@babel/parser';
-import {
-	ExportAllDeclaration,
-	ExportDeclaration,
-	ExportNamedDeclaration,
+import { PathResolver, ResolveParams, ResolvedPath } from './path-resolver';
+import type {
 	File,
 	ImportOrExportDeclaration,
 	Statement,
 	StringLiteral,
 } from '@babel/types';
-import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const pathResolver = new PathResolver({
+	targetPath: './example/src',
+	aliases: {
+		'@/*': './',
+	},
+});
 
 interface Node {
 	readonly path: string;
@@ -22,28 +24,11 @@ interface Node {
 
 const nodes: Record<string, Node> = {};
 
-const test = async () => {
-	const file = await readFile(
-		resolve(__dirname, '..', 'example', 'src', 'index.js'),
-		'utf-8'
-	);
-
-	const files = await readdir(resolve(__dirname, '..', 'example', 'src'));
-
-	const parsed = parse(file, {
-		sourceType: 'module',
-		plugins: ['typescript'],
-		attachComment: false,
-	});
-};
-
-type NeedStatementType = ImportOrExportDeclaration['type'];
-
 type NeedStatement = ImportOrExportDeclaration & {
 	readonly source: StringLiteral;
 };
 
-const neededTypes: NeedStatementType[] = [
+const neededTypes: Statement['type'][] = [
 	'ImportDeclaration',
 	'ExportAllDeclaration',
 	'ExportDefaultDeclaration',
@@ -53,7 +38,7 @@ const neededTypes: NeedStatementType[] = [
 const isNeededLeave = (
 	statement: Statement
 ): statement is ImportOrExportDeclaration => {
-	return true;
+	return neededTypes.includes(statement.type);
 };
 
 interface MakeNodeParams {
@@ -74,25 +59,36 @@ const makeNodeFromAST = ({ parsed, filePath }: MakeNodeParams): Node => {
 
 	return {
 		path: filePath,
-		dependsOn: filteredStatements.map((statement) => statement.source.value),
+		dependsOn: filteredStatements.map((statement) =>
+			pathResolver.resolveAliases(statement.source.value)
+		),
 	};
 };
 
-const parseDir = async ({ path, relativePath = '.' }) => {
-	const files = await readdir(resolve(__dirname, relativePath, path));
+const parseDir = async (resolvedPath: ResolvedPath) => {
+	const files = await readdir(resolvedPath.fullPath);
 
-	const parsers = files.map((file) => {
-		return parse({
+	const parsers = files.map(async (file) => {
+		await parse({
 			path: file,
-			relativePath: resolve(__dirname, relativePath, path),
+			parentPath: resolvedPath.fullPath,
 		});
 	});
 
 	await Promise.all(parsers);
 };
 
-const parseFile = async ({ path, relativePath = '.' }): Promise<Node> => {
-	const file = await readFile(resolve(__dirname, relativePath, path), 'utf-8');
+const parsableExtensions = ['.ts', '.js', '.mjs'];
+
+const parseFile = async (resolvedPath: ResolvedPath): Promise<Node> => {
+	const file = await readFile(resolvedPath.fullPath, 'utf-8');
+	const extension = extname(resolvedPath.fullPath);
+	if (!parsableExtensions.includes(extension)) {
+		return {
+			path: resolvedPath.relativePath,
+			dependsOn: [],
+		};
+	}
 
 	const parsed = parseAST(file, {
 		sourceType: 'module',
@@ -103,25 +99,27 @@ const parseFile = async ({ path, relativePath = '.' }): Promise<Node> => {
 
 	return makeNodeFromAST({
 		parsed,
-		filePath: resolve(relativePath, path),
+		filePath: resolvedPath.relativePath,
 	});
 };
 
-const parse = async ({ path, relativePath = '.' }) => {
-	const information = await stat(resolve(__dirname, relativePath, path));
+const parse = async (params: ResolveParams) => {
+	const resolvedPath = pathResolver.resolve(params);
+	const information = await lstat(resolvedPath.fullPath);
 
 	if (information.isFile()) {
-		const node = await parseFile({ path, relativePath });
+		const node = await parseFile(resolvedPath);
 
 		nodes[node.path] = node;
 	} else if (information.isDirectory()) {
-		await parseDir({ path, relativePath });
+		await parseDir(resolvedPath);
 	}
 };
 
 const start = async () => {
-	await parse({ path: './../example/src' });
+	await parse({ path: pathResolver.resolve({ path: '.' }).fullPath });
 
+	console.log('[SUCCESSFULLY PARSED]');
 	await writeFile('./results.json', JSON.stringify(nodes, undefined, 2));
 };
 
