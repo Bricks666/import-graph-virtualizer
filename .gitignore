@@ -1,0 +1,8 @@
+build
+dist
+node_modules
+.vscode
+.idea
+.env*
+bin
+results.json

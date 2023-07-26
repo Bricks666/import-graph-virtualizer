@@ -1,0 +1,37 @@
+{
+	"name": "import-graph-virtualizer",
+	"version": "1.0.0",
+	"description": "",
+	"main": "bin/index.js",
+	"type": "module",
+	"bin": {
+		"tran": "bin/index.js"
+	},
+	"directories": {
+		"example": "example"
+	},
+	"scripts": {
+		"start": "node bin/index.js",
+		"build": "vite build",
+		"dev": "vite build --mode development --watch"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"dependencies": {
+		"@babel/parser": "^7.22.7",
+		"@babel/types": "^7.22.5"
+	},
+	"devDependencies": {
+		"@types/node": "^20.4.5",
+		"@typescript-eslint/eslint-plugin": "^6.2.0",
+		"@typescript-eslint/parser": "^6.2.0",
+		"eslint": "^8.45.0",
+		"eslint-config-airbnb-base": "^15.0.0",
+		"eslint-config-prettier": "^8.8.0",
+		"eslint-plugin-import": "^2.27.5",
+		"prettier": "^3.0.0",
+		"typescript": "^5.1.6",
+		"vite": "^4.4.7"
+	}
+}
