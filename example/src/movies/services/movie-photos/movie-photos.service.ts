@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { FilesService } from '@/database/files';
+import { FilesService } from '@/files';
 import { RemovePhotosDto } from '../../dto';
 import { Movie, MoviePhoto } from '../../entities';
 import { MoviePhotosRepository } from '../../repositories';
@@ -38,10 +38,13 @@ export class MoviePhotosService {
 	): Promise<Movie> {
 		// Test that movie exists
 		const movie = await this.moviesService.getOne(params);
-		const photosMap = movie.photos.reduce((acc, photo) => {
-			acc[photo.id] = photo;
-			return acc;
-		}, {} as Record<number, MoviePhoto>);
+		const photosMap = movie.photos.reduce(
+			(acc, photo) => {
+				acc[photo.id] = photo;
+				return acc;
+			},
+			{} as Record<number, MoviePhoto>
+		);
 
 		const removeRequests = dto.photosIds.map(async (id) => {
 			const photo = photosMap[id];

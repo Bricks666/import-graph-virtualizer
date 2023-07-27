@@ -4,9 +4,8 @@ import { extname } from 'node:path';
 import { parse as parseAST } from '@babel/parser';
 import { ResolveParams, ResolvedPath, pathResolver } from './path-resolver';
 import { matchAnyPattern, preparedPatterns } from './patterns';
-import { Node, makeNodeFromAST, makeSimpleNode } from './nodes';
-
-const nodes: Record<string, Node> = {};
+import { Node, nodes } from './nodes';
+import { configManager } from './config-manage';
 
 const parseDir = async (resolvedPath: ResolvedPath) => {
 	const files = await readdir(resolvedPath.fullPath);
@@ -14,20 +13,19 @@ const parseDir = async (resolvedPath: ResolvedPath) => {
 	const parsers = files.map((file) =>
 		parse({
 			path: file,
-			parentPath: resolvedPath.fullPath,
+			parentPath: resolvedPath.relativePath,
 		})
 	);
 
 	await Promise.all(parsers);
 };
 
-const parsableExtensions = ['.ts', '.js', '.mjs'];
+const parsableExtensions: string[] = ['.ts', '.js', '.mjs'];
 
 const ignorePatterns = preparedPatterns([
 	'node_modules',
 	'dist',
 	'prisma',
-	'index.js',
 	'*.json',
 ]);
 
@@ -35,20 +33,18 @@ const parseFile = async (resolvedPath: ResolvedPath): Promise<Node> => {
 	const file = await readFile(resolvedPath.fullPath, 'utf-8');
 	const extension = extname(resolvedPath.fullPath);
 
-	if (!parsableExtensions.includes(extension)) {
-		return makeSimpleNode({
-			filePath: resolvedPath.relativePath,
-		});
+	if (!parsableExtensions.includes(extension as any)) {
+		return nodes.addNodeFromResource(resolvedPath.relativePath);
 	}
 
 	const parsed = parseAST(file, {
 		sourceType: 'module',
-		plugins: ['typescript', 'decorators-legacy'],
-
+		sourceFilename: resolvedPath.relativePath,
+		plugins: ['typescript', 'decorators-legacy', 'jsx'],
 		attachComment: false,
 	});
 
-	return makeNodeFromAST({
+	return nodes.addNodeFromAST({
 		parsed,
 		filePath: resolvedPath.relativePath,
 	});
@@ -63,9 +59,7 @@ const parse = async (params: ResolveParams) => {
 	const information = await lstat(resolvedPath.fullPath);
 
 	if (information.isFile()) {
-		const node = await parseFile(resolvedPath);
-
-		nodes[node.path] = node;
+		await parseFile(resolvedPath);
 	} else if (information.isDirectory()) {
 		await parseDir(resolvedPath);
 	}
@@ -77,6 +71,10 @@ export const startParsing = async () => {
 		aliases: {
 			'@/*': './',
 		},
+	});
+	configManager.setConfig({
+		ignorePatterns,
+		supportedExtensions: parsableExtensions,
 	});
 	await parse({ path: pathResolver.resolve({ path: '.' }).fullPath });
 
